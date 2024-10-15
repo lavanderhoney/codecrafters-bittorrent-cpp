@@ -22,11 +22,13 @@ json decode_bencoded_value(const std::string& encoded_value) {
         }
     } else if(encoded_value[0]=='i' && encoded_value[encoded_value.size()-1]=='e'){
         //decoded bencoded digit
-        string int_string = encoded_value.substr(0,encoded_value.size()-1);
+        cout << encoded_value << "\n";
+        string int_string = encoded_value.substr(0,encoded_value.size());
         if (int_string[0]=='0' && int_string.size()>1)
         {
            throw runtime_error("Invalid integer encoding: " + int_string);
         }else{
+            cout << int_string <<"\n";
             int64_t decoded_int = atoll(int_string.c_str());
             return json(decoded_int);
         }

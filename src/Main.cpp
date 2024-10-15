@@ -9,6 +9,9 @@
 using json = nlohmann::json;
 using namespace std;
 
+// Forward declarations
+json decode_bencoded_value(const std::string& encoded_value, size_t& position);
+
 json decode_bencoded_string(const string& encoded_string, size_t& idx){
     size_t length_prefix = encoded_string.find(':');
     if (length_prefix != string::npos) {

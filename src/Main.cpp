@@ -7,7 +7,7 @@
 #include "lib/nlohmann/json.hpp"
 
 using json = nlohmann::json;
-
+using namespace std;
 json decode_bencoded_value(const std::string& encoded_value) {
     if (std::isdigit(encoded_value[0])) {
         // Example: "5:hello" -> "hello"
@@ -20,7 +20,18 @@ json decode_bencoded_value(const std::string& encoded_value) {
         } else {
             throw std::runtime_error("Invalid encoded value: " + encoded_value);
         }
-    } else {
+    } else if(encoded_value[0]=='i' && encoded_value[encoded_value.size()-1]=='e'){
+        //decoded bencoded digit
+        string int_string = encoded_value.substr(0,encoded_value.size()-1);
+        if (int_string[0]=='0' && int_string.size()>1)
+        {
+           throw runtime_error("Invalid integer encoding: " + int_string);
+        }else{
+            int64_t decoded_int = atoll(int_string.c_str());
+            return json(decoded_int);
+        }
+    }
+    else {
         throw std::runtime_error("Unhandled encoded value: " + encoded_value);
     }
 }

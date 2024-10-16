@@ -58,45 +58,26 @@ json decode_bencoded_list(const string& encoded_string, size_t& idx){
     return list;
 }
 
-// json decode_bencoded_dict(const string& encoded_string, size_t& idx) {
-//     idx++; // Skip the 'd'
-//     json dict = json::object();
+json decode_bencoded_dict(const string& encoded_string, size_t& idx) {
+    idx++; // Skip the 'd'
+    json dict = json::object();
 
-//     while (encoded_string[idx] != 'e') {
-//         // Decode the key (which is always a bencoded string)
-//         json key = decode_bencoded_string(encoded_string, idx);
+    while (encoded_string[idx] != 'e') {
+        // Decode the key (which is always a bencoded string)
+        json key = decode_bencoded_string(encoded_string, idx);
 
-//         // Ensure the key is a string, as keys in dictionaries must be strings.
-//         if (!key.is_string()) {
-//             throw runtime_error("Invalid dictionary key type: " + key.dump());
-//         }
-
-//         // Decode the corresponding value
-//         json value = decode_bencoded_value(encoded_string, idx);
-
-//         // Add the key-value pair to the dictionary
-//         dict[key.get<string>()] = value;
-//     }
-
-//     idx++; // Move past 'e' for the next encoded data type
-//     return dict;
-// }
-json decode_bencoded_dict(const string& encoded_string, size_t& idx){
-    idx++;
-    auto dict = nlohmann::ordered_map<json, json>();
-    while(encoded_string[idx]!='e' && idx <encoded_string.size()){
-        auto key = decode_bencoded_value(encoded_string, idx);
-        auto val = decode_bencoded_value(encoded_string, idx);
-        if (key.is_null() || val.is_null()) {
-            throw runtime_error("Invalid key or value encountered while decoding dictionary");
+        if (!key.is_string()) {
+            throw runtime_error("Invalid dictionary key type: " + key.dump());
         }
-        // cout << "key, val: " << key << val << endl;
-        // cout<< "idx" << idx<< endl;
-        dict.push_back({key, val});
+        // Decode the corresponding value
+        json value = decode_bencoded_value(encoded_string, idx);
+
+        // Add the key-value pair to the dictionary
+        dict[key.get<string>()] = value;
     }
-    idx++;
-    // cout << "the dict is: "<< json(dict) << endl;
-    return json(dict);
+
+    idx++; // Move past 'e' for the next encoded data type
+    return dict;
 }
 
 json decode_bencoded_value(const string& encoded_value, size_t& idx) {
@@ -121,36 +102,36 @@ json decode_bencoded_value(const string& encoded_value) {
 
 int main(int argc, char* argv[]) {
     // Flush after every cout / cerr
-    // cout << unitbuf;
-    // cerr << unitbuf;
+    cout << unitbuf;
+    cerr << unitbuf;
 
-    // if (argc < 2) {
-    //     cerr << "Usage: " << argv[0] << " decode <encoded_value>" << endl;
-    //     return 1;
-    // }
+    if (argc < 2) {
+        cerr << "Usage: " << argv[0] << " decode <encoded_value>" << endl;
+        return 1;
+    }
 
-    // string command = argv[1];
+    string command = argv[1];
 
-    // if (command == "decode") {
-    //     if (argc < 3) {
-    //         cerr << "Usage: " << argv[0] << " decode <encoded_value>" << endl;
-    //         return 1;
-    //     }
+    if (command == "decode") {
+        if (argc < 3) {
+            cerr << "Usage: " << argv[0] << " decode <encoded_value>" << endl;
+            return 1;
+        }
     
-    //     string encoded_value = argv[2];
-    //     json decoded_value = decode_bencoded_value(encoded_value);
-    //     cout << decoded_value.dump() << endl;
-    // } else {
-    //     cerr << "unknown command: " << command << endl;
-    //     return 1;
-    // }
-    // return 0;
-     try {
-        string encoded_value = "d3:foo3:bar5:helloi52ee";
+        string encoded_value = argv[2];
         json decoded_value = decode_bencoded_value(encoded_value);
-        string serial = decoded_value.dump();
-    } catch (const std::exception& e) {
-        cerr << "Error: " << e.what() << endl;
+        cout << decoded_value.dump() << endl;
+    } else {
+        cerr << "unknown command: " << command << endl;
+        return 1;
     }
     return 0;
+    //  try {
+    //     string encoded_value = "d3:foo3:bar5:helloi52ee";
+    //     json decoded_value = decode_bencoded_value(encoded_value);
+    //     string serial = decoded_value.dump();
+    // } catch (const std::exception& e) {
+    //     cerr << "Error: " << e.what() << endl;
+    // }
+    // return 0;
 }

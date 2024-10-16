@@ -53,14 +53,15 @@ json decode_bencoded_list(const string& encoded_string, size_t& idx){
 
 json decode_bencoded_dict(const string& encoded_string, size_t& idx){
     idx++;
-    json dict = json::object();
-
+    auto dict = nlohmann::ordered_map<json, json>();
     while(encoded_string[idx]!='e'){
-        dict[decode_bencoded_value(encoded_string, idx).dump()] = decode_bencoded_value(encoded_string, idx).dump();
+        auto key = decode_bencoded_value(encoded_string, idx);
+        auto val = decode_bencoded_value(encoded_string, idx);
+        dict.push_back({key, val});
     }
-    // cout<< "the dict is: " << dict << endl;
-
-    return dict;
+    idx++;
+    cout<< "the dict is: " << json(dict) << endl;
+    return json(dict);
 }
 
 json decode_bencoded_value(const string& encoded_value, size_t& idx) {

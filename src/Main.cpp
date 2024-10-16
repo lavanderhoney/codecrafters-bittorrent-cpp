@@ -60,7 +60,6 @@ json decode_bencoded_dict(const string& encoded_string, size_t& idx){
         dict.push_back({key, val});
     }
     idx++;
-    cout<< "the dict is: " << json(dict) << endl;
     return json(dict);
 }
 

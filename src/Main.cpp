@@ -59,6 +59,7 @@ json decode_bencoded_dict(const string& encoded_string, size_t& idx){
         dict[decode_bencoded_value(encoded_string, idx).dump()] = decode_bencoded_value(encoded_string, idx).dump();
     }
     cout<< "the dict is: " << dict << endl;
+    return dict;
 }
 
 json decode_bencoded_value(const string& encoded_value, size_t& idx) {

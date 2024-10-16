@@ -47,7 +47,7 @@ json decode_bencoded_list(const string& encoded_string, size_t& idx){
     }
 
     idx++;
-    cout << list <<endl;
+    // cout << list <<endl;
     return list;
 }
 
@@ -58,7 +58,7 @@ json decode_bencoded_dict(const string& encoded_string, size_t& idx){
     while(encoded_string[idx]!='e'){
         dict[decode_bencoded_value(encoded_string, idx).dump()] = decode_bencoded_value(encoded_string, idx).dump();
     }
-    cout<< "the dict is: " << dict << endl;
+    // cout<< "the dict is: " << dict << endl;
 
     return dict;
 }

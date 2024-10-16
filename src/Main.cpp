@@ -66,8 +66,10 @@ json decode_bencoded_value(const string& encoded_value, size_t& idx) {
         return decode_bencoded_string(encoded_value, idx);
     } else if(encoded_value[idx]=='i'){
         return decode_bencoded_integer(encoded_value, idx);
-    }else if(encoded_value[0]=='l'){
+    }else if(encoded_value[idx]=='l'){
         return decode_bencoded_list(encoded_value, idx);
+    }else if(encoded_value[idx]=='d'){
+        return decode_bencoded_dict(encoded_value, idx);
     }else {
         throw runtime_error("Unhandled encoded value: " + encoded_value);
     }

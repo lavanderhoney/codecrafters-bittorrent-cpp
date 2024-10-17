@@ -155,6 +155,9 @@ int main(int argc, char* argv[]) {
         cout << decoded_value.dump() << endl;
     } else if(command == "info"){
         json filecontent = readFile(argv[0]);
+        for(const auto& item: filecontent.items()){
+            cout<<item.key()<< item.value() << endl;
+        }
         cout << "Tracker URL: " << filecontent["announce"] << endl;
         cout << "Length: " << filecontent["info"]["length"] << endl;
     }

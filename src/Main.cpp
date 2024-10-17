@@ -121,7 +121,6 @@ json readFile(const string& filePath){
 
     //Create buffer vector to store the file contents
     vector<char> buffer (size);
-
     //read the file
     if (!file.read(buffer.data(), size)) { throw runtime_error("Error reading file: " + filePath); }
 
@@ -152,12 +151,9 @@ int main(int argc, char* argv[]) {
         json decoded_value = decode_bencoded_value(encoded_value);
         cout << decoded_value.dump() << endl;
     } else if(command == "info"){
-        cout << argv[0] << endl;
-        json filecontent = readFile(argv[0]);
-        for(const auto& item: filecontent.items()){
-            cout<<item.key()<< item.value() << endl;
-        }
-        cout << "Tracker URL: " << filecontent["announce"] << endl;
+
+        json filecontent = readFile(argv[2]);
+        cout << "Tracker URL: " << filecontent["announce"].get<std::string>() << endl;
         cout << "Length: " << filecontent["info"]["length"] << endl;
     }
     else {

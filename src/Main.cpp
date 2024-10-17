@@ -27,8 +27,6 @@ json decode_bencoded_string(const string& encoded_string, size_t& idx){
         string str = encoded_string.substr(idx, string_size_int);
         idx += string_size_int; // Update idx to the end of the string
 
-        // idx = length_prefix + 1 + string_size_int; // Update idx
-        // string str = encoded_string.substr(length_prefix + 1, string_size_int);
         // Check if the string contains non-UTF-8 characters
         for (char ch : str) {
             if (ch < 0) { // Indicates possible binary data
@@ -154,6 +152,7 @@ int main(int argc, char* argv[]) {
         json decoded_value = decode_bencoded_value(encoded_value);
         cout << decoded_value.dump() << endl;
     } else if(command == "info"){
+        cout << argv[0] << endl;
         json filecontent = readFile(argv[0]);
         for(const auto& item: filecontent.items()){
             cout<<item.key()<< item.value() << endl;

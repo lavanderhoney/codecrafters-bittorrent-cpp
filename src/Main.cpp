@@ -3,14 +3,19 @@
 #include <vector>
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
+#include <filesystem>
+#include <stdexcept>
 
 #include "lib/nlohmann/json.hpp"
 
 using json = nlohmann::json;
+namespace fs = std::filesystem;
 using namespace std;
 
 // Forward declarations
 json decode_bencoded_value(const std::string& encoded_value, size_t& position);
+json readFile(const std::string& filePath);
 
 json decode_bencoded_string(const string& encoded_string, size_t& idx){
     size_t length_prefix = encoded_string.find(':', idx);
@@ -24,6 +29,13 @@ json decode_bencoded_string(const string& encoded_string, size_t& idx){
 
         // idx = length_prefix + 1 + string_size_int; // Update idx
         // string str = encoded_string.substr(length_prefix + 1, string_size_int);
+        // Check if the string contains non-UTF-8 characters
+        for (char ch : str) {
+            if (ch < 0) { // Indicates possible binary data
+                std::vector<uint8_t> byte_array(str.begin(), str.end());
+                return json(byte_array);
+            }
+        }
         return json(str);
     } else {
         throw runtime_error("Invalid encoded value: " + encoded_string);
@@ -100,6 +112,26 @@ json decode_bencoded_value(const string& encoded_value) {
     return decode_bencoded_value(encoded_value, idx);
 }
 
+json readFile(const string& filePath){
+    if(!fs::exists(filePath)) { throw runtime_error("File don't exist: " + filePath); }
+    //get filesize
+    uint64_t size = fs::file_size(filePath);
+    
+    // Open the file in binary mode using std::ifstream
+    ifstream file(filePath, ios::binary);
+    if (!file) { throw runtime_error("Error opening file: " + filePath); }
+
+    //Create buffer vector to store the file contents
+    vector<char> buffer (size);
+
+    //read the file
+    if (!file.read(buffer.data(), size)) { throw runtime_error("Error reading file: " + filePath); }
+
+    //convert buffer to string and return it
+    string bencoded_meta_info = string(buffer.begin(), buffer.end());
+    return decode_bencoded_value(bencoded_meta_info);
+}
+
 int main(int argc, char* argv[]) {
     // Flush after every cout / cerr
     cout << unitbuf;
@@ -121,17 +153,23 @@ int main(int argc, char* argv[]) {
         string encoded_value = argv[2];
         json decoded_value = decode_bencoded_value(encoded_value);
         cout << decoded_value.dump() << endl;
-    } else {
+    } else if(command == "info"){
+        json filecontent = readFile(argv[0]);
+        cout << "Tracker URL: " << filecontent["announce"] << endl;
+        cout << "Length: " << filecontent["info"]["length"] << endl;
+    }
+    else {
         cerr << "unknown command: " << command << endl;
         return 1;
     }
     return 0;
-    //  try {
-    //     string encoded_value = "d3:foo3:bar5:helloi52ee";
-    //     json decoded_value = decode_bencoded_value(encoded_value);
-    //     string serial = decoded_value.dump();
-    // } catch (const std::exception& e) {
-    //     cerr << "Error: " << e.what() << endl;
-    // }
+        
+    // json filecontent = readFile("sample.torrent");
+//     cout << filecontent << endl;
+   
+//    for(const auto& item: filecontent.items()){
+//         cout<<item.key()<< item.value() << endl;
+//    }
+//    cout << filecontent["info"]["length"] << endl;
     // return 0;
 }

@@ -6,8 +6,9 @@
 #include <fstream>
 #include <filesystem>
 #include <stdexcept>
-
+#include <typeinfo>
 #include "lib/nlohmann/json.hpp"
+#include "lib/sha1.hpp"
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -15,7 +16,9 @@ using namespace std;
 
 // Forward declarations
 json decode_bencoded_value(const std::string& encoded_value, size_t& position);
-json readFile(const std::string& filePath);
+void parse_metainfo(const std::string& filePath);
+string bencode_json(const json& j);
+json sort_json(const json& input_json);
 
 json decode_bencoded_string(const string& encoded_string, size_t& idx){
     size_t length_prefix = encoded_string.find(':', idx);
@@ -27,13 +30,15 @@ json decode_bencoded_string(const string& encoded_string, size_t& idx){
         string str = encoded_string.substr(idx, string_size_int);
         idx += string_size_int; // Update idx to the end of the string
 
-        // Check if the string contains non-UTF-8 characters
+        // // Check if the string contains non-UTF-8 characters
+        vector<uint8_t> byte_vector;
         for (char ch : str) {
-            if (ch < 0) { // Indicates possible binary data
-                std::vector<uint8_t> byte_array(str.begin(), str.end());
-                return json(byte_array);
+            if (static_cast<unsigned char>(ch) < 0x20 || static_cast<unsigned char>(ch) > 0x7E) { // Indicates possible binary data
+                vector<uint8_t> byte_vector(str.begin(), str.end());
+                return json(byte_vector);
             }
         }
+        
         return json(str);
     } else {
         throw runtime_error("Invalid encoded value: " + encoded_string);
@@ -110,10 +115,10 @@ json decode_bencoded_value(const string& encoded_value) {
     return decode_bencoded_value(encoded_value, idx);
 }
 
-json readFile(const string& filePath){
+void parse_metainfo(const string& filePath){
     if(!fs::exists(filePath)) { throw runtime_error("File don't exist: " + filePath); }
     //get filesize
-    uint64_t size = fs::file_size(filePath);
+    size_t size = fs::file_size(filePath);
     
     // Open the file in binary mode using std::ifstream
     ifstream file(filePath, ios::binary);
@@ -126,8 +131,60 @@ json readFile(const string& filePath){
 
     //convert buffer to string and return it
     string bencoded_meta_info = string(buffer.begin(), buffer.end());
-    return decode_bencoded_value(bencoded_meta_info);
+    json metainfo_dict = decode_bencoded_value(bencoded_meta_info);
+
+    json sorted_metainfo_dict = sort_json(metainfo_dict["info"]);
+    string bencoded_info = bencode_json(sorted_metainfo_dict);
+
+    SHA1 sha1;
+    sha1.update(bencoded_info);
+    string info_hash = sha1.final();
+
+    cout << "Info Hash: " << info_hash << endl;
+    cout << "Tracker URL: " << metainfo_dict["announce"].get<string>() << endl;
+    cout << "Length: " << metainfo_dict["info"]["length"] << endl;
 }
+json sort_json(const json& input_json) {
+    // Using std::map will sort the keys automatically.
+    map<string, json> sorted_map;
+
+    for (const auto it : input_json.items()) {
+        sorted_map[it.key()] = it.value();
+    }
+    json sorted_json(sorted_map);
+    return sorted_json;
+}
+
+string bencode_json(const json& j){
+    ostringstream os;   
+    if (j.is_object()){
+        os << 'd';
+        for(auto item : j.items()){
+            os << item.key().size() << ':' << item.key() << bencode_json(item.value());
+        }
+        os << 'e';
+    }else if (j.is_array() && j[0].is_number_unsigned()) {
+        // Handle byte arrays.
+        const auto& byte_array = j.get<std::vector<uint8_t>>();
+        os << byte_array.size() << ':';
+        for (uint8_t byte : byte_array) {
+            os << static_cast<unsigned char>(byte);
+        }
+    }else if(j.is_array()){
+        os << 'l';
+        for(const json& el  : j){
+            os << bencode_json(el);
+        }
+        os << 'e';
+    }else if(j.is_number_integer()){
+        os << 'i' << j.get<int>() << 'e';
+    }else if(j.is_string()){
+        const string value = j.get<string>();
+        os << value.size() << ':' << value;
+    }
+    return os.str();
+}
+
 
 int main(int argc, char* argv[]) {
     // Flush after every cout / cerr
@@ -152,22 +209,12 @@ int main(int argc, char* argv[]) {
         cout << decoded_value.dump() << endl;
     } else if(command == "info"){
 
-        json filecontent = readFile(argv[2]);
-        cout << "Tracker URL: " << filecontent["announce"].get<std::string>() << endl;
-        cout << "Length: " << filecontent["info"]["length"] << endl;
+        parse_metainfo(argv[2]);
+        
     }
     else {
         cerr << "unknown command: " << command << endl;
         return 1;
     }
     return 0;
-        
-    // json filecontent = readFile("sample.torrent");
-//     cout << filecontent << endl;
-   
-//    for(const auto& item: filecontent.items()){
-//         cout<<item.key()<< item.value() << endl;
-//    }
-//    cout << filecontent["info"]["length"] << endl;
-    // return 0;
 }

@@ -16,9 +16,11 @@ using namespace std;
 
 // Forward declarations
 json decode_bencoded_value(const std::string& encoded_value, size_t& position);
-void parse_metainfo(const std::string& filePath);
+void parse_metainfo(const vector<char>& buffer);
 string bencode_json(const json& j);
 json sort_json(const json& input_json);
+vector<char> read_from_file(const string& file_path);
+vector<string> get_hex_string(const json info_dict);
 
 json decode_bencoded_string(const string& encoded_string, size_t& idx){
     size_t length_prefix = encoded_string.find(':', idx);
@@ -115,35 +117,22 @@ json decode_bencoded_value(const string& encoded_value) {
     return decode_bencoded_value(encoded_value, idx);
 }
 
-void parse_metainfo(const string& filePath){
-    if(!fs::exists(filePath)) { throw runtime_error("File don't exist: " + filePath); }
+vector<char> read_from_file(const string& file_path){
+    if(!fs::exists(file_path)) { throw runtime_error("File don't exist: " + file_path); }
     //get filesize
-    size_t size = fs::file_size(filePath);
+    size_t size = fs::file_size(file_path);
     
     // Open the file in binary mode using std::ifstream
-    ifstream file(filePath, ios::binary);
-    if (!file) { throw runtime_error("Error opening file: " + filePath); }
+    ifstream file(file_path, ios::binary);
+    if (!file) { throw runtime_error("Error opening file: " + file_path); }
 
     //Create buffer vector to store the file contents
     vector<char> buffer (size);
     //read the file
-    if (!file.read(buffer.data(), size)) { throw runtime_error("Error reading file: " + filePath); }
-
-    //convert buffer to string and return it
-    string bencoded_meta_info = string(buffer.begin(), buffer.end());
-    json metainfo_dict = decode_bencoded_value(bencoded_meta_info);
-
-    json sorted_metainfo_dict = sort_json(metainfo_dict["info"]);
-    string bencoded_info = bencode_json(sorted_metainfo_dict);
-
-    SHA1 sha1;
-    sha1.update(bencoded_info);
-    string info_hash = sha1.final();
-
-    cout << "Info Hash: " << info_hash << endl;
-    cout << "Tracker URL: " << metainfo_dict["announce"].get<string>() << endl;
-    cout << "Length: " << metainfo_dict["info"]["length"] << endl;
+    if (!file.read(buffer.data(), size)) { throw runtime_error("Error reading file: " + file_path); }
+    return buffer;
 }
+
 json sort_json(const json& input_json) {
     // Using std::map will sort the keys automatically.
     map<string, json> sorted_map;
@@ -185,6 +174,53 @@ string bencode_json(const json& j){
     return os.str();
 }
 
+vector<string> get_hex_string(const json info_dict){
+    size_t pieces_length = info_dict["piece length"].get<size_t>();
+    vector<uint8_t>pieces_hash = info_dict["pieces"].get<vector<uint8_t>>();
+
+    cout<<"pieces length: " << pieces_length << endl;
+    cout<< "pieces hash" <<endl;
+    
+    cout<< pieces_hash.size() << endl;
+
+    vector<string> hex_strings;
+    for (size_t i = 0; i < pieces_hash.size(); i += 20)
+    {
+        vector<uint8_t>curr_hash(pieces_hash.begin()+i, pieces_hash.begin()+i+20);
+        std::ostringstream oss;
+        for (uint8_t byte : curr_hash) {
+            oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
+        }
+        hex_strings.push_back(oss.str());
+    }
+    cout<< hex_strings.size()<<endl;
+    return hex_strings;
+}
+
+void parse_metainfo(const vector<char>& buffer){
+    //convert buffer to string and return it
+    string bencoded_meta_info = string(buffer.begin(), buffer.end());
+    json metainfo_dict = decode_bencoded_value(bencoded_meta_info);
+
+    json sorted_metainfo_dict = sort_json(metainfo_dict["info"]);
+    string bencoded_info = bencode_json(sorted_metainfo_dict);
+
+    vector<string> pieces_hash_hex = get_hex_string(sorted_metainfo_dict);
+
+    SHA1 sha1;
+    sha1.update(bencoded_info);
+    string info_hash = sha1.final();
+
+    cout << "Piece Length: " <<sorted_metainfo_dict["piece length"].get<size_t>() <<endl;
+    cout << "Piece Hashes: " << endl;
+    for (auto it:pieces_hash_hex){
+        cout << it <<endl;
+    }
+    cout << "Info Hash: " << info_hash << endl;
+    cout << "Tracker URL: " << metainfo_dict["announce"].get<string>() << endl;
+    cout << "Length: " << metainfo_dict["info"]["length"] << endl;
+}
+
 
 int main(int argc, char* argv[]) {
     // Flush after every cout / cerr
@@ -208,13 +244,15 @@ int main(int argc, char* argv[]) {
         json decoded_value = decode_bencoded_value(encoded_value);
         cout << decoded_value.dump() << endl;
     } else if(command == "info"){
-
-        parse_metainfo(argv[2]);
+        vector<char> metafile_contents = read_from_file(argv[2]);
+        parse_metainfo(metafile_contents);
         
     }
     else {
         cerr << "unknown command: " << command << endl;
         return 1;
     }
+    // vector<char> metafile_contents = read_from_file("sample.torrent");
+    // parse_metainfo(metafile_contents);
     return 0;
 }

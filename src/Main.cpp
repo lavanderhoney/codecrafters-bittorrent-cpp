@@ -10,6 +10,11 @@
 #include "lib/nlohmann/json.hpp"
 #include "lib/sha1.hpp"
 #include "lib/HTTPRequest.hpp"
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -22,6 +27,7 @@ string bencode_json(const json& j);
 json sort_json(const json& input_json);
 vector<char> read_from_file(const string& file_path);
 vector<string> get_hex_string(const json info_dict);
+string get_info_hash(const json& metainfo_dict);
 string url_encode_request(const string& tracker_url, const string& info_hash, const size_t& file_length);
 void get_peers(const string& request_uri);
 
@@ -200,19 +206,23 @@ vector<string> get_hex_string(const json info_dict){
     return hex_strings;
 }
 
+string get_info_hash(const json& metainfo_dict){
+    json sorted_metainfo_dict = sort_json(metainfo_dict["info"]);
+    string bencoded_info = bencode_json(metainfo_dict["info"]);
+    SHA1 sha1;
+    sha1.update(bencoded_info);
+    string info_hash = sha1.final();
+
+    return info_hash;
+}
 void parse_metainfo(const vector<char>& buffer, bool f){
     //convert buffer to string and return it
     string bencoded_meta_info = string(buffer.begin(), buffer.end());
     json metainfo_dict = decode_bencoded_value(bencoded_meta_info);
 
     json sorted_metainfo_dict = sort_json(metainfo_dict["info"]);
-    string bencoded_info = bencode_json(sorted_metainfo_dict);
-
     vector<string> pieces_hash_hex = get_hex_string(sorted_metainfo_dict);
-
-    SHA1 sha1;
-    sha1.update(bencoded_info);
-    string info_hash = sha1.final();
+    string info_hash = get_info_hash(metainfo_dict);
 
     if(f){
         cout << "Piece Length: " <<sorted_metainfo_dict["piece length"].get<size_t>() <<endl;
@@ -270,12 +280,9 @@ void get_peers(const string& request_uri){
         string request_body = {response.body.begin(), response.body.end()};
        
         json response_dict = decode_bencoded_value(request_body);
-        // cout << response_dict.at("peers") << endl;
-        cout << response_dict.at("peers").is_array() << endl;  
 
         vector<size_t>peers;
         for(const auto& el : response_dict.at("peers")){
-            cout << el << " ";
             peers.push_back(el);
         }
         for (size_t i = 0; i < peers.size(); i += 6){
@@ -292,7 +299,125 @@ void get_peers(const string& request_uri){
     }
 
 }
+
+vector<uint8_t> hex_to_bytes(const string& hex) {
+    std::vector<uint8_t> bytes;
+    for (size_t i = 0; i < hex.length(); i += 2) {
+        std::string byteString = hex.substr(i, 2);
+        uint8_t byte = static_cast<uint8_t>(strtol(byteString.c_str(), nullptr, 16));
+        bytes.push_back(byte);
+    }
+    return bytes;
+}
+
+void prepare_hand_shake(vector<uint8_t>& hand_shake, string hash_info) {
+    char protocolLength = 19;
+    hand_shake.push_back(protocolLength);
+    string protocol = "BitTorrent protocol";
+    cout<< "After lengths:"<<"\n";
+    for(auto& it : hand_shake){
+        cout <<static_cast<int>(it)<<" ";
+    }
+    hand_shake.insert(hand_shake.end(), protocol.begin(), protocol.end());
+    //eight reserved bytes
+    for (int i = 0; i < 8 ; ++i) {
+        hand_shake.push_back(0);
+    }
+    vector<uint8_t> info_hash_bytes = hex_to_bytes(hash_info);
+    hand_shake.insert(hand_shake.end(), info_hash_bytes.begin(), info_hash_bytes.end());
+    string peerId = "89605419386361446009";
+    hand_shake.insert(hand_shake.end(), peerId.begin(), peerId.end());
+
+    // cout<< "\n"<<"After prepare"<<"\n";
+    // for(auto& it : hand_shake){
+    //     cout << static_cast<int>(it) <<" ";
+    // }
+}
+
+int SendRecvHandShake(string torrent_file, string ipaddress) {
+    vector<char> metafile_contents = read_from_file(torrent_file);
+
+    parse_metainfo(metafile_contents, true);
+
+    string bencoded_meta_info = string(metafile_contents.begin(), metafile_contents.end());
+    json metainfo_dict = decode_bencoded_value(bencoded_meta_info);
+    
+    cout << "File : " << "\n" << metainfo_dict << endl;
+    string info_hash = get_info_hash(metainfo_dict);
+
+    cout << "Info hash from get_info_hash: " << "\n" << info_hash << endl;
+    string server_ip;
+    int port;
+    size_t colon_pos = ipaddress.find(':');
+    if (colon_pos == std::string::npos) {
+        std::cerr << "Invalid format. Use <IP:Port>" << std::endl;
+        return 1;
+    }
+    server_ip = ipaddress.substr(0, colon_pos);
+    port = std::stoi(ipaddress.substr(colon_pos+1));
+    // create a socket
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        std::cerr << "Error creating a socket" << std::endl;
+        return 1;
+    }
+    // Define the peer address
+    struct sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+
+    // Convert IPv4 address from text to binary form
+    if (inet_pton(AF_INET, server_ip.c_str(), &server_addr.sin_addr) <= 0) {
+        std::cerr << "Invalid address/Address not supported" << std::endl;
+        return 1;
+    }
+    // Connect to the peer
+    if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0 ) {
+        std::cerr << "Connection Failed" << std::endl;
+        return 1;
+    }
+    std::vector<uint8_t> handShakeMsg;
+    prepare_hand_shake(handShakeMsg, info_hash);
+
+    // cout << "Msg sent" <<"\n";
+    // for(auto& it : handShakeMsg){
+    //     cout << it;
+    // }
+    
+    //send the handshake
+    if (send(sock, handShakeMsg.data(), handShakeMsg.size(), 0) < 0) {
+        std::cerr << "Failed to send handshake" << std::endl;
+        return 1;
+    }
+    std::vector<char> handShakeResp(handShakeMsg.size());
+
+    // cout << "\n" <<"Msg recv: " << "\n" ;
+    // for(auto& it : handShakeResp){
+    //     cout << it;
+    // }
+    if(recv(sock, handShakeResp.data(), handShakeResp.size(), 0) < 0) {
+        std::cerr << "Failed to recv handshake" << std::endl;
+        return 1;
+    }
+    if(!handShakeResp.empty()) {
+        string resp(handShakeResp.end() - 20, handShakeResp.end());
+        ostringstream hexStream;
+        for (unsigned char c : resp) {
+            // Convert each byte to a 2-digit hex number
+            hexStream << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+        }
+        std::cout << "Peer ID: " <<  hexStream.str() << std::endl;
+    }else{
+        cout << "handshake empty" <<endl;
+    }
+    
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
+
+   
+
     // Flush after every cout / cerr
     cout << unitbuf;
     cerr << unitbuf;
@@ -309,7 +434,6 @@ int main(int argc, char* argv[]) {
             cerr << "Usage: " << argv[0] << " decode <encoded_value>" << endl;
             return 1;
         }
-    
         string encoded_value = argv[2];
         json decoded_value = decode_bencoded_value(encoded_value);
         cout << decoded_value.dump() << endl;
@@ -318,13 +442,22 @@ int main(int argc, char* argv[]) {
         parse_metainfo(metafile_contents, true);
         
     }else if(command == "peers"){
-         vector<char> metafile_contents = read_from_file(argv[2]);
+        vector<char> metafile_contents = read_from_file(argv[2]);
         parse_metainfo(metafile_contents, false);
+
+    }else if(command =="handshake"){
+        if(argc < 4){
+            cerr << "Usage: " << argv[0] << " <command> <torrent> <peer_ip>:<peerport>" << endl;
+            return 1;
+        }
+        string torrent_filepath = argv[2];
+        string peer_ipaddr = argv[3];
+
+        SendRecvHandShake(torrent_filepath, peer_ipaddr);
+
     }else {
         cerr << "unknown command: " << command << endl;
         return 1;
     }
-    // vector<char> metafile_contents = read_from_file("sample.torrent");
-    // parse_metainfo(metafile_contents);
     return 0;
 }

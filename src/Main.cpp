@@ -22,14 +22,14 @@ using namespace std;
 
 // Forward declarations
 json decode_bencoded_value(const std::string& encoded_value, size_t& position);
-string parse_metainfo(const vector<char>& buffer, bool f);
+vector<string> parse_metainfo(const vector<char>& buffer, bool f);
+void get_peers(const string& request_uri, vector<string>& ip_port);
 string bencode_json(const json& j);
 json sort_json(const json& input_json);
 vector<char> read_from_file(const string& file_path);
 vector<string> get_hex_string(const json info_dict);
 string get_info_hash(const json& metainfo_dict);
 string url_encode_request(const string& tracker_url, const string& info_hash, const size_t& file_length);
-void get_peers(const string& request_uri, string& ip_port);
 
 struct Msg {
     uint32_t length;
@@ -228,7 +228,7 @@ string get_info_hash(const json& metainfo_dict){
     return info_hash;
 }
 
-string parse_metainfo(const vector<char>& buffer, bool f){
+vector<string> parse_metainfo(const vector<char>& buffer, bool f){
     //convert buffer to string and return it
     string bencoded_meta_info = string(buffer.begin(), buffer.end());
     json metainfo_dict = decode_bencoded_value(bencoded_meta_info);
@@ -246,12 +246,12 @@ string parse_metainfo(const vector<char>& buffer, bool f){
         cout << "Info Hash: " << info_hash << endl;
         cout << "Tracker URL: " << metainfo_dict["announce"].get<string>() << endl;
         cout << "Length: " << metainfo_dict["info"]["length"] << endl;
-        return " ";
+        return vector<string>();
     }else{
         string request_url = url_encode_request(metainfo_dict["announce"].get<string>(), info_hash, metainfo_dict["info"]["length"].get<size_t>());
-        string ip_port;
-        get_peers(request_url, ip_port);
-        return ip_port;
+        vector<string>ip_ports;
+        get_peers(request_url, ip_ports);
+        return ip_ports;
     }
 }
 
@@ -288,7 +288,7 @@ string url_encode_request(const string& tracker_url, const string& info_hash, co
     return request_url;
 }
 
-void get_peers(const string& request_uri, string& ip_port){
+void get_peers(const string& request_uri, vector<string>& ip_port){
     try {
         http::Request request{request_uri}; 
         const http::Response response = request.send("GET");
@@ -305,7 +305,7 @@ void get_peers(const string& request_uri, string& ip_port){
             const string ip = to_string(peers[i]) + "." + to_string(peers[i + 1]) + "." +to_string(peers[i + 2]) + "." +to_string(peers[i + 3]);                                       
             const uint16_t port = (static_cast<uint16_t>(static_cast<unsigned char>(peers[i + 4]) << 8)) | static_cast<uint16_t>(static_cast<unsigned char>(peers[i + 5]));
             cout << ip << ":" << port << "\n";
-            ip_port += ip + ":" + to_string(port);
+            ip_port.push_back(ip+ ":" + to_string(port));
         }
         //The last 2 bytes represent the port number, in big-endian order, i.e, MSByte first. So, the first byte has to be left shifted by 8, to make room for the 2nd byte to be added to it
         // Bitwise oring adds the LSByte
@@ -329,8 +329,8 @@ vector<uint8_t> hex_to_bytes(const string& hex) {
 void prepare_hand_shake(vector<uint8_t>& hand_shake, string hash_info) {
     char protocolLength = 19;
     hand_shake.push_back(protocolLength);
+
     string protocol = "BitTorrent protocol";
-    cout<< "After lengths:"<<"\n";
     for(auto& it : hand_shake){
         cout <<static_cast<int>(it)<<" ";
     }
@@ -439,7 +439,7 @@ int sendMessage(int sock, const std::vector<char>& message) {
     return 1;
 }
 // Function to receive a message
-std::vector<char> receiveMessage(int sock, size_t length) {
+vector<char> receiveMessage(int sock, size_t length) {
     std::vector<char> buffer(length);
     recv(sock, buffer.data(), length, 0);
     return buffer;
@@ -507,27 +507,34 @@ int waitForUnchoke(int sock) {
     return 0;
 }
 
-void download_piece(const int& piece_index, const vector<char>& buffer, const string& all_ip_ports, const string& torrent_file, const string& output_path){
+void download_piece(const int& piece_index, const vector<char>& buffer, const vector<string>& all_ip_ports, const string& torrent_file, const string& output_path){
     string bencoded_meta_file = string(buffer.begin(), buffer.end());
     json metainfo_dict = decode_bencoded_value(bencoded_meta_file);
 
     // cout << "in donwload piece: "<< all_ip_ports << endl;
-    string ip_port = all_ip_ports.substr(0,19); //each peer has 6 bytes (4 byte ip and 2 byte port)
+    string ip_port = all_ip_ports[2]; //each peer has 6 bytes (4 byte ip and 2 byte port)
     // cout << "one peer: " << ip_port << endl;
     int socket = SendRecvHandShake(torrent_file, ip_port);
 
-    std::cout << "ip:port " << ip_port << std::endl;
+    // std::cout << "ip:port " << ip_port << std::endl;
     // cout << metainfo_dict << endl;
     sendInterested(socket);
     waitForUnchoke(socket);
 
     size_t piece_length = 16384;
-    size_t standard_piece_length  = metainfo_dict["info"]["piece length"].get<size_t>();
-    size_t total_file_size = metainfo_dict["info"]["length"].get<size_t>();
 
-    size_t num_pieces = (total_file_size + standard_piece_length - 1) / standard_piece_length; // Calculate total number of pieces
-    cout << "num pieces: " << num_pieces << endl;
+    try{ 
+        cout << "Metainfo dictionary: " << metainfo_dict << endl;
+        size_t standard_piece_length  = metainfo_dict["info"]["piece length"].get<size_t>();
+        size_t total_file_size = metainfo_dict["info"]["length"].get<size_t>();
+        size_t num_pieces = (total_file_size + standard_piece_length - 1) / standard_piece_length; // Calculate total number of pieces
+
+    
+   
+    // cout << "num pieces: " << num_pieces << endl;
+
     ofstream outfile(output_path, ios::binary);
+
     // Determine the size of the current piece
     size_t current_piece_size = (piece_index == num_pieces - 1) ? (total_file_size % standard_piece_length) : standard_piece_length;
     if (current_piece_size == 0) {
@@ -537,8 +544,9 @@ void download_piece(const int& piece_index, const vector<char>& buffer, const st
     size_t offset = 0;  // Offset within the piece
 
     while (remaining > 0) {
-        size_t block_length = std::min(piece_length, remaining);
+        size_t block_length = min(piece_length, remaining);
         sendRequest(socket, piece_index, offset, block_length);
+
         // Receiving piece message
         vector<char> length_buffer(4);
         int bytes_received = recv(socket, length_buffer.data(), 4, 0);
@@ -548,7 +556,7 @@ void download_piece(const int& piece_index, const vector<char>& buffer, const st
         }
         int total_bytes_received = 0;
         int message_length = ntohl(*reinterpret_cast<int*>(length_buffer.data()));
-        std::cout << "Iteration, remaining: " << remaining << ", block_length: " << block_length << ", message_length: " << message_length << std::endl;
+        // std::cout << "Iteration, remaining: " << remaining << ", block_length: " << block_length << ", message_length: " << message_length << std::endl;
         vector<char> message(message_length);
         while (total_bytes_received < message_length) {
             bytes_received = recv(socket, message.data() + total_bytes_received, message_length - total_bytes_received, 0);
@@ -559,9 +567,9 @@ void download_piece(const int& piece_index, const vector<char>& buffer, const st
             }
             total_bytes_received += bytes_received;
         }
-        std::cout << "Total bytes received for this message: " << total_bytes_received << std::endl;
+        // std::cout << "Total bytes received for this message: " << total_bytes_received << std::endl;
         
-        std::cout << "Message ID: " << static_cast<int>(message[0]) << std::endl;
+        // std::cout << "Message ID: " << static_cast<int>(message[0]) << std::endl;
         if(message[0] == 7) {
             // Extract block data from message
             vector<char> received_block(message.begin() + 9, message.end()); // Skip 1 byte of ID, 4 bytes of index, 4 bytes of begin
@@ -576,10 +584,106 @@ void download_piece(const int& piece_index, const vector<char>& buffer, const st
             }
         }
     }
+    
     outfile.close();
+    close(socket);
     // Verify piece integrity
     cout << "Piece " << piece_index << " downloaded to " << output_path << endl;
+    }catch(const std::exception& e){
+        cerr << e.what() << '\n';
+    }
 }
+
+void download_file(const vector<char>& buffer, const vector<string>& all_ip_ports, const string& torrent_file, const string& output_path){
+    string bencoded_meta_file = string(buffer.begin(), buffer.end());
+    json metainfo_dict = decode_bencoded_value(bencoded_meta_file);
+
+    
+    // Extract the total file size and piece length from metadata
+    size_t standard_piece_length = metainfo_dict["info"]["piece length"].get<size_t>();
+    size_t total_file_size = metainfo_dict["info"]["length"].get<size_t>();
+
+    // Calculate the number of pieces
+    size_t num_pieces = (total_file_size + standard_piece_length - 1) / standard_piece_length;
+
+    // Open an output file stream to save the entire file
+    ofstream outfile(output_path, std::ios::binary);
+    if (!outfile.is_open()) {
+        std::cerr << "Error opening output file: " << output_path << std::endl;
+        return; // Exit if the file couldn't be opened
+    }
+
+    string ip_port = all_ip_ports[2];
+    cout << ip_port << endl;
+    int socket = SendRecvHandShake(torrent_file, ip_port); // Handshake to get the socket
+    if (socket < 0) {
+        std::cerr << "Error establishing connection with peer." << std::endl;
+        outfile.close();
+        return; // Exit if the connection failed
+    }
+
+    // Send interested message and wait for unchoke
+    sendInterested(socket);
+    waitForUnchoke(socket);
+
+    for (int piece_index = 0; piece_index < num_pieces; ++piece_index) {
+        cout << "Downloading piece " << piece_index << " of " << num_pieces << "..." << endl;
+        size_t current_piece_size = (piece_index == num_pieces - 1) ? (total_file_size % standard_piece_length) : standard_piece_length;
+        if (current_piece_size == 0) {
+            current_piece_size = standard_piece_length;  // Handle case where file size is an exact multiple of piece length
+        }
+        size_t remaining = current_piece_size;  // Remaining data to download for the current piece
+        size_t offset = 0;  // Offset within the piece
+        size_t piece_length = 16384;
+
+        while (remaining > 0) {
+            size_t block_length = std::min(piece_length, remaining);
+            sendRequest(socket, piece_index, offset, block_length);
+            // Receiving piece message
+            vector<char> length_buffer(4);
+            int bytes_received = recv(socket, length_buffer.data(), 4, 0);
+            if (bytes_received != 4) {
+                cerr << "Error receiving message length or incomplete read: " << bytes_received << endl;
+                break;
+            }
+            int total_bytes_received = 0;
+            int message_length = ntohl(*reinterpret_cast<int*>(length_buffer.data()));
+            // std::cout << "Iteration, remaining: " << remaining << ", block_length: " << block_length << ", message_length: " << message_length << std::endl;
+            vector<char> message(message_length);
+            while (total_bytes_received < message_length) {
+                bytes_received = recv(socket, message.data() + total_bytes_received, message_length - total_bytes_received, 0);
+                //std::cout << "bytes received: " << bytes_received << std::endl;
+                if (bytes_received <= 0) {
+                    std::cerr << "Error receiving message or connection closed" << std::endl;
+                    break;
+                }
+                total_bytes_received += bytes_received;
+            }
+            // std::cout << "Total bytes received for this message: " << total_bytes_received << std::endl;
+
+            // std::cout << "Message ID: " << static_cast<int>(message[0]) << std::endl;
+            if(message[0] == 7) {
+                // Extract block data from message
+                vector<char> received_block(message.begin() + 9, message.end()); // Skip 1 byte of ID, 4 bytes of index, 4 bytes of begin
+                outfile.write(received_block.data(), received_block.size());
+                // Update remaining and offset
+                remaining -= block_length;
+                offset += block_length;
+                // Check if this was the last block
+                if (remaining == 0) {
+                    //std::cout << "Last block received, exiting loop." << std::endl;
+                    break;
+                }
+            }
+        }
+        
+    }
+
+    outfile.close();
+    close(socket);
+    cout << "Download completed, file saved to: " << output_path << endl;
+}
+
 
 int main(int argc, char* argv[]) {
     // Flush after every cout / cerr
@@ -603,11 +707,11 @@ int main(int argc, char* argv[]) {
         cout << decoded_value.dump() << endl;
     } else if(command == "info" ){
         vector<char> metafile_contents = read_from_file(argv[2]);
-        string empty = parse_metainfo(metafile_contents, true);
+        vector<string> empty = parse_metainfo(metafile_contents, true);
         
     }else if(command == "peers"){
         vector<char> metafile_contents = read_from_file(argv[2]);
-        string ip_port = parse_metainfo(metafile_contents, false);
+        vector<string> ip_port = parse_metainfo(metafile_contents, false);
 
     }else if(command =="handshake"){
         if(argc < 4){
@@ -625,13 +729,22 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         string output_path = argv[3]; // Assuming '-o' is argv[2]
-        cout << "output_path: " <<output_path<<endl;
+        // cout << "output_path: " <<output_path<<endl;
         string torrent_filepath = argv[4];
         int piece_index = stoi(argv[5]);
         vector<char> metafile_contents_buffer = read_from_file(torrent_filepath);
-        string ip_ports = parse_metainfo(metafile_contents_buffer, false); 
+        vector<string> ip_ports = parse_metainfo(metafile_contents_buffer, false); 
         download_piece(piece_index, metafile_contents_buffer, ip_ports, torrent_filepath, output_path);
 
+    }else if(command=="download"){
+        if(argc < 5){
+            cerr << "Usage: " << argv[0] << " download_piece -o <output_filename> <torrent_filename>" << endl;
+        }
+        string output_path = argv[3]; // Assuming '-o' is argv[2]
+        string torrent_filepath = argv[4];
+        vector<char> metafile_contents_buffer = read_from_file(torrent_filepath);
+        vector<string> ip_ports = parse_metainfo(metafile_contents_buffer, false);
+        download_file(metafile_contents_buffer, ip_ports, torrent_filepath, output_path);
     }else {
         cerr << "unknown command: " << command << endl;
         return 1;
